@@ -1,130 +1,89 @@
-"""
-Configuration Module
-
-This module provides configuration settings for the Discord bot and related services.
-"""
-
 import os
-import json
-import logging
-from typing import Dict, Any, List, Optional
+import discord
+from dotenv import load_dotenv
 
-# Configure logger
-logger = logging.getLogger("config")
+# Load .env file if it exists
+load_dotenv()
 
-# Default configuration
-config: Dict[str, Any] = {
-    "discord": {
-        "prefix": "!",
-        "production": os.environ.get("PRODUCTION", "False").lower() in ("true", "1", "yes"),
-        "debug_guilds": [],
-        "owner_ids": []
-    },
-    "mongodb": {
-        "uri": os.environ.get("MONGODB_URI"),
-        "db_name": os.environ.get("DB_NAME", "discordbot")
-    },
-    "premium": {
-        "default_duration_days": 30,
-        "max_guilds_per_user": {
-            "BASIC": 1,
-            "STANDARD": 3,
-            "PRO": 5,
-            "ENTERPRISE": 10
+class Config:
+    """Configuration settings for the Discord bot"""
+    
+    # Bot command prefix
+    PREFIX = os.environ.get("COMMAND_PREFIX", "!")
+    
+    # MongoDB connection URI
+    MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/discordbot")
+    
+    # Database name to use
+    DB_NAME = os.environ.get("DB_NAME", "discordbot")
+    
+    # Logging configuration
+    LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+    
+    # Discord embed colors
+    EMBED_COLOR = discord.Color.from_rgb(59, 136, 195)  # Blue
+    ERROR_COLOR = discord.Color.from_rgb(231, 76, 60)   # Red
+    SUCCESS_COLOR = discord.Color.from_rgb(46, 204, 113)  # Green
+    WARNING_COLOR = discord.Color.from_rgb(241, 196, 15)  # Yellow
+    
+    # Premium tiers
+    PREMIUM_TIERS = {
+        "basic": {
+            "name": "Basic",
+            "price": 5,
+            "features": ["Faster processing", "Priority support"]
         },
-        "features": {
-            "BASIC": ["basic_analytics", "extended_logs"],
-            "STANDARD": ["basic_analytics", "extended_logs", "custom_commands", "advanced_logging"],
-            "PRO": ["basic_analytics", "extended_logs", "custom_commands", "advanced_logging", 
-                   "auto_moderation", "scheduled_messages", "role_management"],
-            "ENTERPRISE": ["basic_analytics", "extended_logs", "custom_commands", "advanced_logging", 
-                         "auto_moderation", "scheduled_messages", "role_management", 
-                         "audit_logs", "message_filtering", "custom_welcome", "advanced_stats"]
+        "pro": {
+            "name": "Pro",
+            "price": 10,
+            "features": ["All Basic features", "Advanced analytics", "Custom branding"]
+        },
+        "enterprise": {
+            "name": "Enterprise",
+            "price": 25,
+            "features": ["All Pro features", "Dedicated support", "Custom integrations"]
         }
-    },
-    "logging": {
-        "level": os.environ.get("LOG_LEVEL", "INFO"),
-        "file": "logs/bot.log",
-        "max_bytes": 10485760,  # 10 MB
-        "backup_count": 5
-    },
-    "sftp": {
-        "enabled": False,
-        "host": os.environ.get("SFTP_HOST"),
-        "port": int(os.environ.get("SFTP_PORT", "22")),
-        "username": os.environ.get("SFTP_USERNAME"),
-        "password": os.environ.get("SFTP_PASSWORD"),
-        "key_file": os.environ.get("SFTP_KEY_FILE"),
-        "remote_dir": os.environ.get("SFTP_REMOTE_DIR", "/logs")
     }
+    
+    # API rate limits
+    RATE_LIMIT_STANDARD = 5  # requests per minute
+    RATE_LIMIT_PREMIUM = 20  # requests per minute
+    
+    # Canvas configuration
+    CANVAS_WIDTH = 32
+    CANVAS_HEIGHT = 32
+    
+    # Economy system configuration
+    DAILY_CREDITS = 100
+    VOTE_CREDITS = 50
+    
+    # Bounty system settings
+    MIN_BOUNTY_AMOUNT = 100
+    MAX_BOUNTY_AMOUNT = 10000
+    BOUNTY_EXPIRY_DAYS = 7
+
+# Export common constants for easier imports
+EMBED_COLOR = Config.EMBED_COLOR
+ERROR_COLOR = Config.ERROR_COLOR
+SUCCESS_COLOR = Config.SUCCESS_COLOR
+WARNING_COLOR = Config.WARNING_COLOR
+PREMIUM_TIERS = Config.PREMIUM_TIERS
+COMMAND_PREFIX = Config.PREFIX
+
+# Constants for embeds
+EMBED_FOOTER = "Tower of Temptation Bot • Created with ♥"
+EMBED_FOOTER_ICON = "https://i.imgur.com/7Xd2lKj.png"
+
+# CSV and Log Parser Constants
+CSV_FIELDS = [
+    "timestamp", "killer_name", "killer_id", "victim_name", "victim_id", 
+    "weapon", "distance", "platform"
+]
+
+# Event patterns for log processing
+EVENT_PATTERNS = {
+    "kill": r"(?P<killer_name>.*) killed (?P<victim_name>.*) with (?P<weapon>.*) at (?P<distance>\d+) meters",
+    "join": r"(?P<player_name>.*) joined the server",
+    "leave": r"(?P<player_name>.*) left the server",
+    "chat": r"\[(?P<channel>.*)\] (?P<player_name>.*): (?P<message>.*)"
 }
-
-# Parse debug guild IDs from environment
-debug_guilds_str = os.environ.get("DEBUG_GUILDS", "")
-if debug_guilds_str:
-    try:
-        debug_guild_ids = [int(guild_id.strip()) for guild_id in debug_guilds_str.split(",") if guild_id.strip()]
-        config["discord"]["debug_guilds"] = debug_guild_ids
-    except (ValueError, TypeError) as e:
-        logger.error(f"Error parsing DEBUG_GUILDS: {e}")
-
-# Parse owner IDs from environment
-owner_ids_str = os.environ.get("OWNER_IDS", "")
-if owner_ids_str:
-    try:
-        owner_ids = [int(owner_id.strip()) for owner_id in owner_ids_str.split(",") if owner_id.strip()]
-        config["discord"]["owner_ids"] = owner_ids
-    except (ValueError, TypeError) as e:
-        logger.error(f"Error parsing OWNER_IDS: {e}")
-
-# Load config from file if it exists
-config_file = os.environ.get("CONFIG_FILE", "config.json")
-if os.path.exists(config_file):
-    try:
-        with open(config_file, "r") as f:
-            file_config = json.load(f)
-        
-        # Update config with values from file
-        for section, values in file_config.items():
-            if section in config:
-                if isinstance(config[section], dict) and isinstance(values, dict):
-                    config[section].update(values)
-                else:
-                    config[section] = values
-            else:
-                config[section] = values
-                
-        logger.info(f"Loaded configuration from {config_file}")
-    except (json.JSONDecodeError, IOError) as e:
-        logger.error(f"Error loading config from {config_file}: {e}")
-
-# Ensure required directories exist
-os.makedirs("logs", exist_ok=True)
-
-# Configure logging based on config
-log_level_name = config["logging"]["level"]
-log_level = getattr(logging, log_level_name.upper(), logging.INFO)
-
-# Export a getter function for cleaner access
-def get_config(section: Optional[str] = None, key: Optional[str] = None, default: Any = None) -> Any:
-    """
-    Get a configuration value with optional fallback
-    
-    Args:
-        section: Configuration section (optional)
-        key: Key within the section (optional)
-        default: Default value if the requested config doesn't exist
-        
-    Returns:
-        The requested configuration value or default
-    """
-    if section is None:
-        return config
-    
-    if section not in config:
-        return default
-    
-    if key is None:
-        return config[section]
-    
-    return config[section].get(key, default)

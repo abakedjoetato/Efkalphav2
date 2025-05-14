@@ -1,18 +1,12 @@
 """
-Setup Workflow Script
-
-This script sets up the workflow for the Discord bot in Replit.
-It creates the necessary configuration files, directories,
-and installs required dependencies.
+Setup workflow for the Discord bot in Replit environment
 """
 
 import os
 import sys
-import json
 import logging
-import argparse
 import subprocess
-from typing import Dict, List, Any, Optional
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -24,152 +18,89 @@ logging.basicConfig(
     ]
 )
 
-logger = logging.getLogger("setup_workflow")
+logger = logging.getLogger(__name__)
 
-def create_replit_file():
-    """Create the .replit configuration file"""
-    replit_config = {
-        "run": "python3 app.py",
-        "language": "python3",
-        "entrypoint": "app.py",
-        "hidden": [
-            ".git",
-            ".gitignore",
-            "venv",
-            ".config",
-            "**/__pycache__",
-            "**/.mypy_cache",
-            "**/*.pyc"
-        ],
-        "packager": {
-            "features": {}
-        },
-        "compile": {
-            "watch": {
-                "ignore": [
-                    "logs/"
-                ]
-            }
-        }
-    }
+def setup_environment():
+    """Set up the environment for the Discord bot"""
+    # Create logs directory if it doesn't exist
+    os.makedirs("logs", exist_ok=True)
+    logger.info("Created logs directory")
     
-    with open(".replit", "w") as f:
-        json.dump(replit_config, f, indent=2)
-        
-    logger.info("Created .replit configuration file")
-
-def create_env_file():
-    """Create a template .env file if it doesn't exist"""
-    if not os.path.exists(".env"):
-        with open(".env", "w") as f:
-            f.write("""# Discord Bot Configuration
-# Replace these with your actual values
-
-# Required
-DISCORD_TOKEN=your_discord_bot_token_here
-
-# MongoDB Configuration
-MONGODB_URI=mongodb://localhost:27017/discordbot
-DB_NAME=discordbot
-
-# Logging Configuration
-LOG_LEVEL=INFO
-
-# Premium Configuration
-DEFAULT_PREMIUM_DURATION=30
-""")
-        
-        logger.info("Created template .env file")
-    else:
-        logger.info(".env file already exists, skipping")
-
-def create_requirements_file():
-    """Create the requirements.txt file"""
-    requirements = [
-        "python-dotenv",
-        "py-cord",
-        "motor",
-        "pymongo",
-        "dnspython",
-        "paramiko",
-        "matplotlib",
-        "numpy",
-        "pandas",
-        "psutil",
-        "aiohttp",
-        "aiofiles",
-        "pytz"
-    ]
-    
-    with open("requirements.txt", "w") as f:
-        for req in requirements:
-            f.write(f"{req}\n")
-            
-    logger.info("Created requirements.txt file")
-
-def create_directories():
-    """Create necessary directories if they don't exist"""
-    directories = [
-        "logs",
-        "cogs",
-        "utils",
-        "models",
-        "static",
-        "templates"
-    ]
-    
-    for directory in directories:
-        os.makedirs(directory, exist_ok=True)
-        
-    logger.info(f"Created {len(directories)} directories")
-
-def install_dependencies():
-    """Install required dependencies"""
+    # Ensure run_replit.sh is executable
     try:
-        logger.info("Installing dependencies...")
+        os.chmod("run_replit.sh", 0o755)
+        logger.info("Made run_replit.sh executable")
+    except Exception as e:
+        logger.error(f"Failed to make run_replit.sh executable: {e}")
         
-        # Install requirements
-        subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
+    # Create .env file if it doesn't exist
+    if not os.path.exists(".env"):
+        try:
+            with open(".env", "w") as f:
+                f.write("# Discord Bot Environment Variables\n")
+                f.write("# Add your configuration here\n")
+                f.write("\n")
+                f.write("# Discord Bot Token\n")
+                f.write("# DISCORD_TOKEN=your_token_here\n")
+                f.write("\n")
+                f.write("# MongoDB Connection URI\n")
+                f.write("# MONGODB_URI=your_mongodb_uri_here\n")
+                f.write("\n")
+                f.write("# Debug Mode\n")
+                f.write("DEBUG=false\n")
+                
+            logger.info("Created .env file template")
+        except Exception as e:
+            logger.error(f"Failed to create .env file: {e}")
+    
+    # Verify file permissions
+    try:
+        os.chmod("app.py", 0o755)
+        logger.info("Made app.py executable")
+    except Exception as e:
+        logger.error(f"Failed to make app.py executable: {e}")
         
-        logger.info("Dependencies installed successfully")
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to install dependencies: {e}")
-        return False
+    logger.info("Environment setup complete")
+
+def check_dependencies():
+    """Check if all required dependencies are installed"""
+    required_packages = [
+        "py-cord", "motor", "pymongo", "dnspython", "python-dotenv",
+        "aiohttp", "aiofiles", "asyncio", "asyncssh", "paramiko", 
+        "pytz", "requests", "pydantic", "pillow", "psutil"
+    ]
+    
+    missing_packages = []
+    
+    for package in required_packages:
+        try:
+            __import__(package.replace('-', '_'))
+        except ImportError:
+            missing_packages.append(package)
+            
+    if missing_packages:
+        logger.warning(f"Missing packages: {', '.join(missing_packages)}")
+        try:
+            pip_command = [sys.executable, "-m", "pip", "install"] + missing_packages
+            subprocess.check_call(pip_command)
+            logger.info(f"Installed missing packages: {', '.join(missing_packages)}")
+        except Exception as e:
+            logger.error(f"Failed to install missing packages: {e}")
+    else:
+        logger.info("All required packages are installed")
 
 def main():
-    """Main function"""
-    parser = argparse.ArgumentParser(description="Set up the Discord bot workflow")
-    parser.add_argument("--skip-install", action="store_true", help="Skip installing dependencies")
-    parser.add_argument("--create-replit", action="store_true", help="Create .replit file (not recommended on Replit)")
-    args = parser.parse_args()
-    
+    """Main entry point"""
     logger.info("Setting up Discord bot workflow")
     
-    # Create configuration files
-    if args.create_replit:
-        try:
-            create_replit_file()
-        except Exception as e:
-            logger.error(f"Failed to create .replit file: {e}")
-            
-    create_env_file()
-    create_requirements_file()
+    # Set up environment
+    setup_environment()
     
-    # Create directories
-    create_directories()
+    # Check dependencies
+    check_dependencies()
     
-    # Install dependencies
-    if not args.skip_install:
-        success = install_dependencies()
-        if not success:
-            logger.error("Failed to set up workflow due to dependency installation failure")
-            return 1
-    else:
-        logger.info("Skipping dependency installation")
-    
-    logger.info("Workflow setup complete")
-    return 0
+    logger.info("Discord bot workflow setup complete")
+    logger.info("Run the bot with: python app.py")
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

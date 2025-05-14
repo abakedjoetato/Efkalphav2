@@ -1,7 +1,11 @@
 """
-Utils Package
-
-This package contains utility modules for the Discord bot.
+Utils package for Discord bot
 """
 
-# Leave this file empty to make the directory a package
+# Re-export app_commands at package level for easier imports
+from utils.app_commands import (
+    command, describe, choices, autocomplete, Choice
+)
+
+# For backward compatibility, provide app_commands object
+from utils.discord_patches import app_commands

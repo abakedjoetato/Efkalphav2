@@ -1,92 +1,179 @@
 """
-Simple Discord Bot
-
-A minimal, functional Discord bot that connects and responds to commands.
+Simplified Discord Bot Implementation
+This is a more straightforward version of the Discord bot focusing on core functionality.
 """
 
 import os
-import discord
-from discord.ext import commands
-import logging
+import sys
 import asyncio
+import logging
+import importlib
+import traceback
+from datetime import datetime
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Set up custom logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler("bot.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
-# Set up logging
-logging.basicConfig(level=logging.INFO,
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("simple_bot")
+# Import discord.py
+import discord
+from discord.ext import commands
 
-# Create bot instance with all intents
-intents = discord.Intents.default()
-intents.message_content = True  # Enables access to message content
-intents.members = True  # Enables access to member data
-
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-@bot.event
-async def on_ready():
-    """Called when the bot is ready to start receiving events."""
-    logger.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
-    logger.info(f"Connected to {len(bot.guilds)} guilds")
+class SimpleBot(commands.Bot):
+    """A simplified Discord bot implementation"""
     
-    # Set presence
-    await bot.change_presence(activity=discord.Game(name="!help for commands"))
+    def __init__(self):
+        """Initialize the bot"""
+        # Set up intents
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.members = True
+        
+        # Initialize the bot with command prefix and intents
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            case_insensitive=True
+        )
+        
+        # Set bot properties
+        self.start_time = datetime.now()
+        self.db = None
+        
+        # Add bot status
+        self.activity = discord.Game(name="!help")
     
-    logger.info("Bot is ready!")
-
-@bot.command(name="ping")
-async def ping(ctx):
-    """Simple ping command to check if bot is responsive."""
-    await ctx.send(f"Pong! Latency: {round(bot.latency * 1000)}ms")
-
-@bot.command(name="hello")
-async def hello(ctx):
-    """Greets the user."""
-    await ctx.send(f"Hello {ctx.author.mention}! How can I help you today?")
-
-@bot.command(name="info")
-async def info(ctx):
-    """Provides information about the bot."""
-    embed = discord.Embed(
-        title="Bot Information",
-        description="A simple Discord bot created as a starting point.",
-        color=discord.Color.blue()
-    )
-    embed.add_field(name="Commands", value="!ping, !hello, !info", inline=False)
-    embed.add_field(name="Servers", value=str(len(bot.guilds)), inline=True)
-    embed.add_field(name="Users", value=str(sum(guild.member_count for guild in bot.guilds)), inline=True)
+    async def setup_hook(self):
+        """Setup hook called before the bot starts"""
+        # Load cogs
+        await self.load_cogs()
+        
+        # Set up database
+        await self.setup_database()
     
-    await ctx.send(embed=embed)
+    async def load_cogs(self):
+        """Load all cogs from the cogs directory"""
+        logger.info("Loading cogs...")
+        cogs_dir = 'cogs'
+        
+        if not os.path.isdir(cogs_dir):
+            logger.warning(f"Cogs directory '{cogs_dir}' not found")
+            return
+        
+        # Create a list to track loaded and failed cogs
+        loaded_cogs = []
+        failed_cogs = []
+        
+        # Load each cog
+        for filename in os.listdir(cogs_dir):
+            if filename.endswith('.py') and not filename.startswith('_'):
+                cog_name = f"cogs.{filename[:-3]}"
+                try:
+                    await self.load_extension(cog_name)
+                    loaded_cogs.append(cog_name)
+                    logger.info(f"Loaded cog: {cog_name}")
+                except Exception as e:
+                    failed_cogs.append(cog_name)
+                    logger.error(f"Failed to load cog {cog_name}: {e}")
+                    logger.error(traceback.format_exc())
+        
+        logger.info(f"Loaded {len(loaded_cogs)} cogs. Failed to load {len(failed_cogs)} cogs.")
+    
+    async def setup_database(self):
+        """Set up the database connection"""
+        try:
+            # Import database connection utilities
+            from utils.db_connection import get_db_connection
+            
+            # Get the database connection
+            self.db = await get_db_connection()
+            
+            if self.db:
+                logger.info("Connected to MongoDB database")
+                
+                # Ensure indexes
+                try:
+                    from utils.db_connection import ensure_indexes
+                    await ensure_indexes()
+                except Exception as e:
+                    logger.error(f"Failed to ensure indexes: {e}")
+            else:
+                logger.error("Failed to connect to MongoDB database")
+        except Exception as e:
+            logger.error(f"Error setting up database: {e}")
+            logger.error(traceback.format_exc())
+    
+    async def on_ready(self):
+        """Called when the bot is ready"""
+        logger.info(f"Logged in as {self.user.name} ({self.user.id})")
+        logger.info(f"Connected to {len(self.guilds)} guilds")
+        logger.info(f"Bot is ready!")
+    
+    async def on_error(self, event_method, *args, **kwargs):
+        """Called when an event raises an uncaught exception"""
+        logger.error(f"Error in {event_method}")
+        logger.error(traceback.format_exc())
+    
+    async def on_command_error(self, ctx, error):
+        """Handle command errors that aren't handled by the ErrorHandling cog"""
+        if hasattr(ctx.command, 'on_error'):
+            return  # Command has its own error handler
+        
+        # If we have the error handling cog, let it handle the error
+        cog = ctx.bot.get_cog('ErrorHandling')
+        if cog:
+            logger.debug("Delegating error to ErrorHandling cog")
+            return
+        
+        # If we reach here, no error handler caught this error
+        error_message = str(error)
+        
+        try:
+            await ctx.send(f"An error occurred: {error_message}")
+        except discord.errors.Forbidden:
+            pass  # Can't send messages in this channel
+        
+        logger.error(f"Unhandled command error in {ctx.command}: {error}")
+        logger.error(traceback.format_exc())
 
-@bot.event
-async def on_command_error(ctx, error):
-    """Global error handler for commands."""
-    if isinstance(error, commands.CommandNotFound):
-        await ctx.send("Command not found. Try !help to see available commands.")
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"Missing required argument: {error.param.name}")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("Invalid argument provided.")
-    else:
-        logger.error(f"Error in command {ctx.command}: {error}")
-        await ctx.send("An error occurred while processing your command.")
-
-def run_bot():
-    """Run the Discord bot."""
-    token = os.getenv("DISCORD_TOKEN")
+async def main():
+    """Main entry point for the bot"""
+    # Load environment variables
+    load_dotenv()
+    
+    # Check for Discord token
+    token = os.environ.get("DISCORD_TOKEN")
     if not token:
-        logger.error("No Discord token found. Please set the DISCORD_TOKEN environment variable.")
-        return
+        logger.critical("DISCORD_TOKEN environment variable not set")
+        return 1
+    
+    # Create and run the bot
+    bot = SimpleBot()
     
     try:
-        bot.run(token)
-    except discord.errors.LoginFailure:
-        logger.error("Invalid Discord token. Please check your DISCORD_TOKEN environment variable.")
+        logger.info("Starting bot...")
+        await bot.start(token)
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt")
     except Exception as e:
-        logger.error(f"Error starting bot: {e}")
+        logger.critical(f"Error starting bot: {e}")
+        logger.critical(traceback.format_exc())
+        return 1
+    finally:
+        # Close the bot
+        if not bot.is_closed():
+            await bot.close()
+    
+    return 0
 
 if __name__ == "__main__":
-    run_bot()
+    exit_code = asyncio.run(main())
+    sys.exit(exit_code)

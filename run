@@ -1,9 +1,6 @@
 #!/bin/bash
 
-# Run script for the Discord bot
+# Execute the Python Discord bot
+# This script is used by Replit to start the Discord bot
 
-# Ensure we're in the correct directory
-cd "$(dirname "$0")"
-
-# Start the bot
-python3 main.py
+python app.py
