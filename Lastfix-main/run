@@ -1,4 +1,0 @@
-#!/bin/bash
-# Simple run script for Replit
-echo "Starting Discord bot using replit_run.py..."
-python replit_run.py
