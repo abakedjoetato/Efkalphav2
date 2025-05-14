@@ -1,0 +1,19 @@
+[Unit]
+Description=Discord Bot Service
+After=network.target
+
+[Service]
+Type=simple
+User=your_username
+WorkingDirectory=/path/to/bot
+ExecStart=/usr/bin/python3 /path/to/bot/start_bot.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=discordbot
+Environment="DISCORD_TOKEN=your_token_here"
+# Add any other environment variables needed
+
+[Install]
+WantedBy=multi-user.target

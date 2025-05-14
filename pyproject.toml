@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["cogs", "utils", "models"]
+
+[project]
+name = "discord-bot"
+version = "1.0.0"
+description = "Discord Bot for Replit"
+readme = "README.md"
+authors = [
+    {name = "Replit"}
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "py-cord==2.6.1",
+    "motor",
+    "pymongo",
+    "python-dotenv",
+    "pytz",
+    "aiohttp",
+    "asyncio",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "flake8",
+    "pytest",
+    "pytest-asyncio",
+]
