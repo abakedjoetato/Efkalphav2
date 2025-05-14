@@ -1,4 +1,10 @@
 #!/bin/bash
-# Simple entry point for running the Discord bot via Replit
-echo "Starting Discord bot..."
-python start_discord_bot.py
+
+# Script to run the Discord bot on Replit
+
+# Ensure logs directory exists
+mkdir -p logs
+
+# Run the bot with proper Python path
+echo "Starting Discord bot via run_replit.py..."
+exec python3 run_replit.py

@@ -1,3 +1,4 @@
+modules = ["python-3.11"]
 [nix]
 channel = "stable-24_05"
-packages = ["unzip"]
+packages = ["cacert", "cairo", "ffmpeg-full", "freetype", "ghostscript", "glibcLocales", "gobject-introspection", "gtk3", "libxcrypt", "pkg-config", "qhull", "tcl", "tk", "unzip"]

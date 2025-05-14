@@ -1,23 +1,9 @@
 #!/bin/bash
-# Find the Python executable directly and run the bot
 
-# Define possible Python paths (in order of preference)
-PYTHON_PATHS=(
-  "/home/runner/workspace/.pythonlibs/bin/python"
-  "/home/runner/.pythonlibs/bin/python"
-  "$(which python3)"
-  "$(which python)"
-)
+# Run script for the Discord bot
 
-# Try each path until we find a working Python
-for PYTHON_PATH in "${PYTHON_PATHS[@]}"; do
-  if [ -x "$PYTHON_PATH" ]; then
-    echo "Found Python at $PYTHON_PATH"
-    echo "Starting Discord bot..."
-    "$PYTHON_PATH" run_bot.py
-    exit $?
-  fi
-done
+# Ensure we're in the correct directory
+cd "$(dirname "$0")"
 
-echo "Error: Could not find Python executable. Please install Python 3."
-exit 1
+# Start the bot
+python3 main.py

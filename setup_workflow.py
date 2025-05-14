@@ -1,68 +1,175 @@
-#!/usr/bin/env python3
 """
-Setup workflow for the Discord bot in Replit
-This script creates the necessary .replit file with the correct workflow configuration
-"""
-import os
-import json
+Setup Workflow Script
 
-def setup_workflow():
-    """Set up the Discord bot workflow"""
-    print("Setting up Discord bot workflow...")
-    
-    # Create the .replit file with the proper workflow configuration
+This script sets up the workflow for the Discord bot in Replit.
+It creates the necessary configuration files, directories,
+and installs required dependencies.
+"""
+
+import os
+import sys
+import json
+import logging
+import argparse
+import subprocess
+from typing import Dict, List, Any, Optional
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("setup_workflow.log")
+    ]
+)
+
+logger = logging.getLogger("setup_workflow")
+
+def create_replit_file():
+    """Create the .replit configuration file"""
     replit_config = {
-        "run": "bash run.sh",
-        "modules": ["python-3.11"],
-        "entrypoint": "run.py",
-        "nix": {
-            "channel": "stable-24_05",
-            "packages": [
-                "cacert", "cairo", "ffmpeg-full", "freetype", "ghostscript", 
-                "glibcLocales", "gobject-introspection", "gtk3", "lcms2", 
-                "libimagequant", "libjpeg", "libsodium", "libtiff", "libwebp", 
-                "libxcrypt", "nettle", "openjpeg", "openssh", "openssl", 
-                "pkg-config", "qhull", "tcl", "tk", "zlib"
-            ]
+        "run": "python3 app.py",
+        "language": "python3",
+        "entrypoint": "app.py",
+        "hidden": [
+            ".git",
+            ".gitignore",
+            "venv",
+            ".config",
+            "**/__pycache__",
+            "**/.mypy_cache",
+            "**/*.pyc"
+        ],
+        "packager": {
+            "features": {}
         },
-        "workspaces": {
-            "discord_bot": {
-                "title": "Discord Bot",
-                "run": "bash run.sh",
-                "restartOn": {
-                    "watch-path": "./.replit"
-                }
+        "compile": {
+            "watch": {
+                "ignore": [
+                    "logs/"
+                ]
             }
         }
     }
     
-    # Write the configuration to the .replit file
-    with open('.replit', 'w') as f:
-        for key, value in replit_config.items():
-            if key == "workspaces":
-                f.write(f"[{key}]\n")
-                for workspace_name, workspace_config in value.items():
-                    f.write(f"[{key}.{workspace_name}]\n")
-                    for wk_key, wk_value in workspace_config.items():
-                        if isinstance(wk_value, dict):
-                            f.write(f"[{key}.{workspace_name}.{wk_key}]\n")
-                            for sub_key, sub_value in wk_value.items():
-                                f.write(f'{sub_key} = "{sub_value}"\n')
-                        else:
-                            f.write(f'{wk_key} = "{wk_value}"\n')
-            elif key == "nix":
-                f.write(f"[{key}]\n")
-                for nix_key, nix_value in value.items():
-                    if nix_key == "packages":
-                        f.write(f'{nix_key} = {json.dumps(nix_value)}\n')
-                    else:
-                        f.write(f'{nix_key} = "{nix_value}"\n')
-            elif key == "modules":
-                f.write(f'{key} = {json.dumps(value)}\n')
-            else:
-                f.write(f'{key} = "{value}"\n')
+    with open(".replit", "w") as f:
+        json.dump(replit_config, f, indent=2)
+        
+    logger.info("Created .replit configuration file")
+
+def create_env_file():
+    """Create a template .env file if it doesn't exist"""
+    if not os.path.exists(".env"):
+        with open(".env", "w") as f:
+            f.write("""# Discord Bot Configuration
+# Replace these with your actual values
+
+# Required
+DISCORD_TOKEN=your_discord_bot_token_here
+
+# MongoDB Configuration
+MONGODB_URI=mongodb://localhost:27017/discordbot
+DB_NAME=discordbot
+
+# Logging Configuration
+LOG_LEVEL=INFO
+
+# Premium Configuration
+DEFAULT_PREMIUM_DURATION=30
+""")
+        
+        logger.info("Created template .env file")
+    else:
+        logger.info(".env file already exists, skipping")
+
+def create_requirements_file():
+    """Create the requirements.txt file"""
+    requirements = [
+        "python-dotenv",
+        "py-cord",
+        "motor",
+        "pymongo",
+        "dnspython",
+        "paramiko",
+        "matplotlib",
+        "numpy",
+        "pandas",
+        "psutil",
+        "aiohttp",
+        "aiofiles",
+        "pytz"
+    ]
     
-    print("Workflow setup completed. You can now run the Discord bot using the workflow.")
+    with open("requirements.txt", "w") as f:
+        for req in requirements:
+            f.write(f"{req}\n")
+            
+    logger.info("Created requirements.txt file")
+
+def create_directories():
+    """Create necessary directories if they don't exist"""
+    directories = [
+        "logs",
+        "cogs",
+        "utils",
+        "models",
+        "static",
+        "templates"
+    ]
+    
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+        
+    logger.info(f"Created {len(directories)} directories")
+
+def install_dependencies():
+    """Install required dependencies"""
+    try:
+        logger.info("Installing dependencies...")
+        
+        # Install requirements
+        subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
+        
+        logger.info("Dependencies installed successfully")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to install dependencies: {e}")
+        return False
+
+def main():
+    """Main function"""
+    parser = argparse.ArgumentParser(description="Set up the Discord bot workflow")
+    parser.add_argument("--skip-install", action="store_true", help="Skip installing dependencies")
+    parser.add_argument("--create-replit", action="store_true", help="Create .replit file (not recommended on Replit)")
+    args = parser.parse_args()
+    
+    logger.info("Setting up Discord bot workflow")
+    
+    # Create configuration files
+    if args.create_replit:
+        try:
+            create_replit_file()
+        except Exception as e:
+            logger.error(f"Failed to create .replit file: {e}")
+            
+    create_env_file()
+    create_requirements_file()
+    
+    # Create directories
+    create_directories()
+    
+    # Install dependencies
+    if not args.skip_install:
+        success = install_dependencies()
+        if not success:
+            logger.error("Failed to set up workflow due to dependency installation failure")
+            return 1
+    else:
+        logger.info("Skipping dependency installation")
+    
+    logger.info("Workflow setup complete")
+    return 0
 
 if __name__ == "__main__":
-    setup_workflow()
+    sys.exit(main())

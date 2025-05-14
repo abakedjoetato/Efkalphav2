@@ -1,6 +1,8 @@
 README.md
 pyproject.toml
+cogs/__init__.py
 cogs/admin.py
+cogs/basic.py
 cogs/bounties_fixed.py
 cogs/cog_template_fixed.py
 cogs/economy.py
@@ -16,6 +18,7 @@ cogs/log_processor.py
 cogs/new_csv_processor.py
 cogs/player_links.py
 cogs/player_links_simple.py
+cogs/premium.py
 cogs/premium_new_updated_fixed.py
 cogs/rivalries_fixed.py
 cogs/setup_fixed.py
@@ -134,11 +137,13 @@ utils/server_identity.py
 utils/server_mapper.py
 utils/server_utils.py
 utils/sftp.py
+utils/sftp_connection.py
 utils/sftp_connection_pool.py
 utils/sftp_exceptions.py
 utils/sftp_helpers.py
 utils/stable_csv_parser.py
 utils/svg_loader.py
+utils/timed_events.py
 utils/timeout.py
 utils/type_safety.py
 utils/update_bot_status.py
