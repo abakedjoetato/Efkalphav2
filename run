@@ -3,4 +3,28 @@
 # Execute the Python Discord bot
 # This script is used by Replit to start the Discord bot
 
-python app.py
+# Export necessary environment variables
+export PYTHONPATH="$PYTHONPATH:$(pwd)"
+export PYTHONUNBUFFERED=1
+
+# Print banner
+echo "  _____  _                       _   ____        _   "
+echo " |  __ \(_)                     | | |  _ \      | |  "
+echo " | |  | |_ ___  ___ ___  _ __ __| | | |_) | ___ | |_ "
+echo " | |  | | / __|/ __/ _ \| '__/ _\` | |  _ < / _ \| __|"
+echo " | |__| | \__ \ (_| (_) | | | (_| | | |_) | (_) | |_ "
+echo " |_____/|_|___/\___\___/|_|  \__,_| |____/ \___/ \__|"
+echo "                                                     "
+echo " Discord Bot Runner for Replit"
+echo "-----------------------------------"
+echo ""
+
+# Check if required environment variables are set
+if [ -z "$DISCORD_TOKEN" ]; then
+  echo "ERROR: DISCORD_TOKEN environment variable is not set."
+  echo "Please set it in the Secrets tab of your Replit project."
+  exit 1
+fi
+
+# Run the bot
+python discord_bot.py

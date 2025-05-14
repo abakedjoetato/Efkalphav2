@@ -16,10 +16,6 @@ import aiohttp
 import json
 from typing import Dict, List, Optional, Any, Union, Callable, Coroutine, TypeVar
 
-# Import our custom discord module
-import discord
-from discord.ext import commands
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +26,21 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Import py-cord instead of our custom discord module
+try:
+    # First, try to remove our local discord from path if it's there
+    if 'discord' in sys.modules:
+        del sys.modules['discord']
+    sys.path = [p for p in sys.path if not p.endswith('discord')]
+    
+    # Now import the installed py-cord
+    import discord
+    from discord.ext import commands
+    logger.info(f"Successfully imported py-cord version {discord.__version__}")
+except ImportError as e:
+    logger.critical(f"Error importing discord: {e}")
+    raise
 
 # Load environment variables
 load_dotenv()
@@ -130,8 +141,20 @@ class EnhancedDiscordBot(commands.Bot):
         mongo_uri = os.getenv("MONGODB_URI")
         if mongo_uri:
             self.db_client = motor.motor_asyncio.AsyncIOMotorClient(mongo_uri)
-            self.db = self.db_client.lastfix
-            logger.info("Connected to MongoDB")
+            # Extract database name from URI or use default
+            db_name = "discord_bot"
+            try:
+                # Try to parse database name from connection string
+                parts = mongo_uri.split("/")
+                if len(parts) >= 4:
+                    parsed_db = parts[3].split("?")[0]  # Remove query parameters if present
+                    if parsed_db:
+                        db_name = parsed_db
+            except Exception as e:
+                logger.error(f"Error parsing database name from connection string: {e}")
+                
+            self.db = self.db_client[db_name]
+            logger.info(f"Connected to MongoDB database: {db_name}")
         else:
             self.db_client = None
             self.db = None
