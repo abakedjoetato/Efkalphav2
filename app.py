@@ -7,197 +7,279 @@ actually running our Discord bot in a background process.
 
 import os
 import sys
+import time
 import signal
+import logging
 import subprocess
 import threading
-import time
-import logging
-import traceback
-from datetime import datetime
+from flask import Flask, render_template_string
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("app_launcher.log")
+        logging.FileHandler("app_launcher.log"),
+        logging.StreamHandler()
     ]
 )
-
-logger = logging.getLogger("app_launcher")
+logger = logging.getLogger(__name__)
 
 # Global variables
 bot_process = None
-log_thread = None
-stop_log_thread = False
-start_time = datetime.now()
+output_buffer = []
+MAX_OUTPUT_LINES = 1000
+
+# Create Flask app
+app = Flask(__name__)
+
+# HTML template for web interface
+TEMPLATE = """<!DOCTYPE html>
+<html>
+<head>
+    <title>Discord Bot Status</title>
+    <meta http-equiv="refresh" content="30">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #5865F2;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status {
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .output {
+            background-color: #2C2F33;
+            color: #ffffff;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .running {
+            color: #57F287;
+            font-weight: bold;
+        }
+        .stopped {
+            color: #ED4245;
+            font-weight: bold;
+        }
+        .info {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <h1>Discord Bot Status</h1>
+    <div class="status">
+        <h2>Bot Status: <span class="{{ 'running' if is_running else 'stopped' }}">{{ 'Running' if is_running else 'Stopped' }}</span></h2>
+        <p>Started at: {{ start_time }}</p>
+        <p>Uptime: {{ uptime }}</p>
+    </div>
+    <h3>Bot Output:</h3>
+    <div class="output">{{ output }}</div>
+    <div class="info">
+        <p>This page refreshes automatically every 30 seconds.</p>
+        <p>The Discord bot runs in a background process and will continue running even if this page is closed.</p>
+    </div>
+</body>
+</html>
+"""
 
 def start_discord_bot():
     """
     Start the Discord bot in a subprocess
     """
-    global bot_process, log_thread, stop_log_thread
+    global bot_process, output_buffer
     
-    # Kill any existing process
     if bot_process is not None:
-        try:
-            bot_process.terminate()
-            bot_process.wait(timeout=5)
-        except:
-            try:
-                bot_process.kill()
-            except:
-                pass
-    
-    # Reset thread flags
-    stop_log_thread = True
-    if log_thread is not None and log_thread.is_alive():
-        log_thread.join(5)
-    
-    # Start the bot process
-    cmd = ["./run_fixed"]
-    
-    logger.info(f"Starting Discord bot process: {' '.join(cmd)}")
+        logger.info("Bot is already running, not starting another instance")
+        return
     
     try:
-        # Make the script executable if it isn't already
-        if not os.access("run_fixed", os.X_OK):
-            os.chmod("run_fixed", 0o755)
-            logger.info("Made run_fixed executable")
+        # Clear output buffer
+        output_buffer = []
         
-        # Create logs directory if it doesn't exist
-        os.makedirs("logs", exist_ok=True)
+        # Start the bot using the run_workflow.py script
+        cmd = [sys.executable, "run_workflow.py"]
+        logger.info(f"Starting Discord bot with command: {' '.join(cmd)}")
         
-        # Check if Discord token exists
-        if not os.getenv("DISCORD_TOKEN"):
-            logger.critical("DISCORD_TOKEN environment variable is not set")
-            return False
-        
-        # Start the bot process
+        # Create bot process
         bot_process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             text=True,
             bufsize=1  # Line buffered
         )
         
-        logger.info(f"Discord bot process started with PID {bot_process.pid}")
+        # Start thread to log output
+        threading.Thread(target=log_output, daemon=True).start()
         
-        # Start the log thread
-        stop_log_thread = False
-        log_thread = threading.Thread(target=log_output)
-        log_thread.daemon = True
-        log_thread.start()
-        
-        return True
-    except Exception as e:
-        logger.error(f"Failed to start Discord bot process: {e}")
-        logger.error(traceback.format_exc())
-        return False
+        logger.info("Discord bot started")
     
+    except Exception as e:
+        logger.error(f"Failed to start Discord bot: {e}")
+        if bot_process:
+            try:
+                bot_process.terminate()
+            except:
+                pass
+            bot_process = None
+
 def log_output():
     """Function to continuously read and log output from the bot process"""
-    global bot_process, stop_log_thread
+    global bot_process, output_buffer
     
-    logger.info("Started log output thread")
+    if bot_process is None:
+        return
     
-    # Open a log file for the bot output
-    log_file = open("bot_output.log", "a", encoding="utf-8")
-    
-    while not stop_log_thread and bot_process and bot_process.poll() is None:
-        try:
-            # Read a line from the process output
-            line = bot_process.stdout.readline()
+    try:
+        # Read stdout
+        for line in bot_process.stdout:
+            line = line.rstrip()
+            logger.info(f"[BOT] {line}")
             
-            if line:
-                # Log and print the output
-                line = line.rstrip()
-                print(line)
-                
-                # Write to log file with timestamp
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                log_file.write(f"[{timestamp}] {line}\n")
-                log_file.flush()  # Ensure it's written immediately
-            else:
-                # No more output, check if the process is still running
-                if bot_process.poll() is not None:
-                    break
-                    
-                # Small delay to avoid spinning
-                time.sleep(0.1)
-        except Exception as e:
-            logger.error(f"Error reading bot output: {e}")
-            time.sleep(1)
-    
-    # Close the log file
-    log_file.close()
+            # Add to output buffer
+            output_buffer.append(line)
             
-    logger.info("Log output thread stopped")
+            # Trim buffer if it gets too large
+            if len(output_buffer) > MAX_OUTPUT_LINES:
+                output_buffer = output_buffer[-MAX_OUTPUT_LINES:]
+        
+        # Read stderr
+        for line in bot_process.stderr:
+            line = line.rstrip()
+            logger.error(f"[BOT-ERR] {line}")
+            
+            # Add to output buffer
+            output_buffer.append(f"ERROR: {line}")
+            
+            # Trim buffer if it gets too large
+            if len(output_buffer) > MAX_OUTPUT_LINES:
+                output_buffer = output_buffer[-MAX_OUTPUT_LINES:]
+    
+    except Exception as e:
+        logger.error(f"Error reading bot output: {e}")
+    
+    finally:
+        # Check if process has exited
+        if bot_process.poll() is not None:
+            logger.info(f"Bot process exited with code {bot_process.returncode}")
+            global bot_process_start_time
+            bot_process_start_time = None
 
 def cleanup(signum, frame):
     """
     Cleanup function to terminate the bot process when this script is stopped
     """
-    global bot_process, log_thread, stop_log_thread
+    global bot_process
     
     logger.info(f"Received signal {signum}, shutting down")
     
-    # Stop the log thread
-    stop_log_thread = True
-    if log_thread is not None and log_thread.is_alive():
-        log_thread.join(5)
-        
-    # Stop the bot process
-    if bot_process is not None:
+    if bot_process:
+        logger.info("Terminating bot process")
         try:
-            logger.info(f"Terminating bot process (PID {bot_process.pid})...")
             bot_process.terminate()
+            bot_process.wait(timeout=5)
+        except:
+            logger.error("Failed to terminate bot process gracefully, killing")
             try:
-                bot_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                logger.warning("Bot process did not exit gracefully, force killing")
                 bot_process.kill()
-        except Exception as e:
-            logger.error(f"Error stopping bot process: {e}")
+            except:
+                pass
     
-    # Calculate runtime
-    runtime = datetime.now() - start_time
-    logger.info(f"Bot ran for {runtime}")
-            
+    logger.info("Cleanup complete")
     sys.exit(0)
+
+def get_uptime():
+    """Get uptime of the bot process"""
+    global bot_process_start_time
+    
+    if bot_process_start_time is None:
+        return "Not running"
+    
+    uptime_seconds = int(time.time() - bot_process_start_time)
+    days, remainder = divmod(uptime_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days} days")
+    if hours > 0:
+        parts.append(f"{hours} hours")
+    if minutes > 0:
+        parts.append(f"{minutes} minutes")
+    if seconds > 0 or not parts:
+        parts.append(f"{seconds} seconds")
+    
+    return ", ".join(parts)
+
+def is_bot_running():
+    """Check if the bot process is running"""
+    global bot_process
+    
+    if bot_process is None:
+        return False
+    
+    return bot_process.poll() is None
+
+@app.route('/')
+def index():
+    """Root route to display bot status"""
+    global output_buffer, bot_process_start_time
+    
+    return render_template_string(
+        TEMPLATE,
+        is_running=is_bot_running(),
+        start_time=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(bot_process_start_time)) if bot_process_start_time else "Not started",
+        uptime=get_uptime(),
+        output="\n".join(output_buffer)
+    )
+
+# Initialize bot process start time
+bot_process_start_time = None
 
 def start_server():
     """
     Function for Replit to call
     """
-    # Register signal handlers
+    # Set up signal handlers
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
     
-    logger.info("App launcher starting")
-    
     # Start the Discord bot
-    start_discord_bot()
+    global bot_process_start_time
+    bot_process_start_time = time.time()
+    threading.Thread(target=start_discord_bot, daemon=True).start()
     
-    # Keep the main thread alive
-    try:
-        while True:
-            time.sleep(60)
-            
-            # Check if the bot process is still running
-            if bot_process is not None and bot_process.poll() is not None:
-                logger.warning("Bot process has stopped, restarting")
-                start_discord_bot()
-    except KeyboardInterrupt:
-        cleanup(signal.SIGINT, None)
-        
-    logger.info("App launcher exiting")
+    # Give the bot a moment to start
+    time.sleep(2)
+    
+    # Return the Flask app
+    return app
 
-# For Flask/Replit compatibility
-# This will be imported by Replit to run the app
-app = type('App', (), {'run': start_server})()
+# Create app for Replit
+app = start_server()
 
+# If this script is run directly, start the Flask server
 if __name__ == "__main__":
-    start_server()
+    # Start Flask server on port 8080
+    app.run(host='0.0.0.0', port=8080)
