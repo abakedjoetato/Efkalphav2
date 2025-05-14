@@ -1,668 +1,204 @@
 """
-Safe MongoDB Client
+Safe MongoDB Operations Module
 
-This module provides a safe MongoDB client with error handling and 
-automatic reconnection capabilities. It wraps the motor.motor_asyncio 
-client to ensure reliable database operations, even in unreliable network conditions.
+This module provides classes and utilities for safely interacting with MongoDB,
+with proper error handling and type safety.
 """
 
-import os
-import logging
-import asyncio
-import datetime
-from typing import Dict, List, Any, Optional, Union, TypeVar, Generic, Mapping, Iterable
+from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
 
-# Import pymongo and motor for MongoDB interactions
-try:
-    import pymongo
-    from pymongo.database import Database
-    from pymongo.collection import Collection
-    from pymongo.results import InsertOneResult, InsertManyResult, UpdateResult, DeleteResult
-    from pymongo.errors import PyMongoError, ConnectionFailure, ServerSelectionTimeoutError
-    import motor.motor_asyncio
-    from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
-except ImportError as e:
-    print(f"Error importing MongoDB libraries: {e}")
-    print("Make sure you have installed pymongo and motor.")
-    raise
+T = TypeVar('T')
 
-# Configure logger
-logger = logging.getLogger("mongodb")
-
-# Result class for database operations
-class SafeMongoDBResult:
+class SafeMongoDBResult(Generic[T]):
     """
-    Result class for database operations
+    Wrapper for MongoDB operation results with error handling.
     
-    This class encapsulates the result of a database operation,
-    including success status, data, and error information.
+    This class encapsulates the result of MongoDB operations, including
+    success/failure information, error details, and the result data.
     
     Attributes:
         success: Whether the operation was successful
-        data: The data returned by the operation (if any)
-        error: Error information (if any)
-        error_type: Type of error (if any)
-        timestamp: When the operation was performed
+        result: The result data (if successful)
+        error: Error message (if unsuccessful)
+        collection_name: Name of the collection involved in the operation
+        operation: Operation name for logging
     """
     
-    def __init__(self, success: bool, data: Any = None, error: Optional[str] = None, error_type: Optional[str] = None):
+    def __init__(
+        self, 
+        success: bool = False, 
+        result: Optional[T] = None, 
+        error: Optional[str] = None, 
+        collection_name: Optional[str] = None,
+        operation: Optional[str] = None
+    ):
         """
-        Initialize the result
+        Initialize a SafeMongoDBResult.
         
         Args:
             success: Whether the operation was successful
-            data: The data returned by the operation (if any)
-            error: Error information (if any)
-            error_type: Type of error (if any)
+            result: The result data (if successful)
+            error: Error message (if unsuccessful)
+            collection_name: Name of the collection involved in the operation
+            operation: Operation name for logging
         """
         self.success = success
-        self.data = data
+        self.result = result
         self.error = error
-        self.error_type = error_type
-        self.timestamp = datetime.datetime.utcnow()
-    
-    def __bool__(self) -> bool:
-        """Boolean conversion for the result"""
-        return self.success
-    
-    def __str__(self) -> str:
-        """String representation for the result"""
-        if self.success:
-            return f"Success: {self.data}"
-        else:
-            return f"Error ({self.error_type}): {self.error}"
-    
-    @classmethod
-    def success_result(cls, data: Any = None) -> 'SafeMongoDBResult':
-        """
-        Create a success result
+        self.collection_name = collection_name
+        self.operation = operation
         
-        Args:
-            data: The data to include in the result
-            
-        Returns:
-            Success result
-        """
-        return cls(True, data=data)
-    
-    @classmethod
-    def error_result(cls, error: str, error_type: Optional[str] = None, data: Any = None) -> 'SafeMongoDBResult':
-        """
-        Create an error result
-        
-        Args:
-            error: Error message
-            error_type: Type of error
-            data: Any data to include
-            
-        Returns:
-            Error result
-        """
-        return cls(False, data=data, error=error, error_type=error_type)
-
-# Type variable for database operations
-T = TypeVar('T')
-
-class SafeMongoDBClient(Generic[T]):
-    """
-    Safe MongoDB client with error handling and reconnection
-    
-    This class wraps the MongoDB client to provide error handling,
-    automatic reconnection, and other safety features.
-    
-    Attributes:
-        uri: MongoDB connection URI
-        db_name: Name of the database
-        client: Motor AsyncIO MongoDB client
-        database: AsyncIO Motor database
-    """
-    
-    def __init__(self, uri: str, db_name: str):
-        """
-        Initialize the client
-        
-        Args:
-            uri: MongoDB connection URI
-            db_name: Name of the database
-        """
-        self.uri = uri
-        self.db_name = db_name
-        self.client = None
-        self._database = None
-        self._connected = False
-        self._max_reconnect_attempts = 3
-        self._reconnect_delay = 2  # seconds
-    
     @property
-    def database(self) -> AsyncIOMotorDatabase:
+    def failed(self):
         """
-        Get the database instance
+        Whether the operation failed.
         
         Returns:
-            AsyncIO Motor database
-        
-        Raises:
-            RuntimeError: If not connected to the database
+            bool: True if failed, False if succeeded
         """
-        if not self._database:
-            raise RuntimeError("Not connected to MongoDB. Call connect() first.")
+        return not self.success
         
-        return self._database
-    
-    async def connect(self) -> SafeMongoDBResult:
+    def __bool__(self):
         """
-        Connect to MongoDB
+        Boolean representation of result - True if successful.
         
         Returns:
-            Result of the connection attempt
+            bool: True if success, False otherwise
         """
-        try:
-            logger.info(f"Connecting to MongoDB: {self.db_name}")
-            
-            # Create the client
-            self.client = AsyncIOMotorClient(
-                self.uri,
-                serverSelectionTimeoutMS=5000,
-                connectTimeoutMS=5000,
-                socketTimeoutMS=10000,
-                maxPoolSize=10
-            )
-            
-            # Get the database
-            self._database = self.client[self.db_name]
-            
-            # Verify the connection by listing collections
-            await self._database.list_collection_names()
-            
-            self._connected = True
-            logger.info(f"Connected to MongoDB: {self.db_name}")
-            
-            return SafeMongoDBResult.success_result()
-        except ConnectionFailure as e:
-            logger.error(f"Failed to connect to MongoDB: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type="ConnectionFailure"
-            )
-        except ServerSelectionTimeoutError as e:
-            logger.error(f"MongoDB server selection timeout: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type="ServerSelectionTimeoutError"
-            )
-        except Exception as e:
-            logger.error(f"Error connecting to MongoDB: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-    
-    async def close(self) -> None:
-        """Close the connection"""
-        if self.client:
-            self.client.close()
-            self._connected = False
-            self._database = None
-            logger.info("Closed MongoDB connection")
-    
-    async def _ensure_connected(self) -> SafeMongoDBResult:
+        return self.success
+        
+    def __str__(self):
         """
-        Ensure the client is connected and reconnect if necessary
+        String representation of result.
         
         Returns:
-            Result of the connection check
+            str: Description of result
         """
-        if self._connected and self.client and self._database:
-            return SafeMongoDBResult.success_result()
-        
-        for attempt in range(self._max_reconnect_attempts):
-            result = await self.connect()
-            if result.success:
-                return result
-            
-            if attempt < self._max_reconnect_attempts - 1:
-                logger.info(f"Reconnection attempt {attempt + 1} failed, retrying in {self._reconnect_delay} seconds...")
-                await asyncio.sleep(self._reconnect_delay)
-        
-        return SafeMongoDBResult.error_result(
-            "Failed to reconnect to MongoDB after multiple attempts",
-            error_type="ReconnectionFailure"
-        )
+        if self.success:
+            return f"Success: {self.operation or 'MongoDB operation'}"
+        else:
+            return f"Failed: {self.operation or 'MongoDB operation'} - {self.error}"
+
+class SafeDocument(Dict[str, Any]):
+    """
+    Safe wrapper for MongoDB documents with additional helper methods.
     
-    async def get_collection(self, collection_name: str) -> SafeMongoDBResult[Collection]:
+    This class provides a safer way to access document fields with
+    proper error handling and default values.
+    """
+    
+    def __init__(self, document: Optional[Dict[str, Any]] = None):
         """
-        Get a collection safely
+        Initialize a SafeDocument.
         
         Args:
-            collection_name: Name of the collection
+            document: The MongoDB document to wrap
+        """
+        super().__init__()
+        if document:
+            self.update(document)
             
-        Returns:
-            Result with the collection or error
+    def get(self, key: str, default: Any = None) -> Any:
         """
-        # Ensure connected
-        connect_result = await self._ensure_connected()
-        if not connect_result.success:
-            return connect_result
-        
-        try:
-            collection = self._database[collection_name]
-            return SafeMongoDBResult.success_result(collection)
-        except Exception as e:
-            logger.error(f"Error getting collection {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-    
-    async def insert_one(self, collection_name: str, document: Dict[str, Any]) -> SafeMongoDBResult[InsertOneResult]:
-        """
-        Insert a document safely
+        Get a value from the document with a default.
         
         Args:
-            collection_name: Name of the collection
-            document: Document to insert
+            key: The key to look up
+            default: Default value if the key is not found
             
         Returns:
-            Result with the insert result or error
+            The value at the key or the default
         """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
+        return super().get(key, default)
         
-        collection = collection_result.data
-        
-        try:
-            result = await collection.insert_one(document)
-            return SafeMongoDBResult.success_result(result)
-        except PyMongoError as e:
-            logger.error(f"Error inserting document into {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data=document
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error inserting document: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data=document
-            )
-    
-    async def insert_many(self, collection_name: str, documents: List[Dict[str, Any]]) -> SafeMongoDBResult[InsertManyResult]:
+    def get_string(self, key: str, default: str = "") -> str:
         """
-        Insert multiple documents safely
+        Get a string value from the document with a default.
         
         Args:
-            collection_name: Name of the collection
-            documents: Documents to insert
+            key: The key to look up
+            default: Default value if the key is not found or not a string
             
         Returns:
-            Result with the insert result or error
+            The string value at the key or the default
         """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
+        value = self.get(key, default)
+        if not isinstance(value, str):
+            return default
+        return value
         
-        collection = collection_result.data
-        
-        try:
-            result = await collection.insert_many(documents)
-            return SafeMongoDBResult.success_result(result)
-        except PyMongoError as e:
-            logger.error(f"Error inserting multiple documents into {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data=documents
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error inserting multiple documents: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data=documents
-            )
-    
-    async def find_one(self, collection_name: str, query: Dict[str, Any], projection: Optional[Dict[str, Any]] = None) -> SafeMongoDBResult[Optional[Dict[str, Any]]]:
+    def get_int(self, key: str, default: int = 0) -> int:
         """
-        Find a single document safely
+        Get an integer value from the document with a default.
         
         Args:
-            collection_name: Name of the collection
-            query: Query filter
-            projection: Projection to apply
+            key: The key to look up
+            default: Default value if the key is not found or not an integer
             
         Returns:
-            Result with the found document or error
+            The integer value at the key or the default
         """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
-        
-        collection = collection_result.data
-        
+        value = self.get(key, default)
         try:
-            result = await collection.find_one(query, projection)
-            return SafeMongoDBResult.success_result(result)
-        except PyMongoError as e:
-            logger.error(f"Error finding document in {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error finding document: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-    
-    async def find_many(self, collection_name: str, query: Dict[str, Any], 
-                        projection: Optional[Dict[str, Any]] = None,
-                        sort: Optional[List[tuple]] = None,
-                        limit: Optional[int] = None,
-                        skip: Optional[int] = None) -> SafeMongoDBResult[List[Dict[str, Any]]]:
+            return int(value)
+        except (ValueError, TypeError):
+            return default
+            
+    def get_bool(self, key: str, default: bool = False) -> bool:
         """
-        Find multiple documents safely
+        Get a boolean value from the document with a default.
         
         Args:
-            collection_name: Name of the collection
-            query: Query filter
-            projection: Projection to apply
-            sort: Sort specification
-            limit: Maximum number of documents to return
-            skip: Number of documents to skip
+            key: The key to look up
+            default: Default value if the key is not found or not a boolean
             
         Returns:
-            Result with the found documents or error
+            The boolean value at the key or the default
         """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
-        
-        collection = collection_result.data
-        
-        try:
-            cursor = collection.find(query, projection)
-            
-            if sort:
-                cursor = cursor.sort(sort)
-            
-            if skip:
-                cursor = cursor.skip(skip)
-                
-            if limit:
-                cursor = cursor.limit(limit)
-            
-            documents = await cursor.to_list(length=None)
-            return SafeMongoDBResult.success_result(documents)
-        except PyMongoError as e:
-            logger.error(f"Error finding documents in {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error finding documents: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
+        value = self.get(key, default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ("yes", "true", "t", "1")
+        if isinstance(value, int):
+            return value != 0
+        return default
+
+
+# Global MongoDB database instance
+_db = None
+
+def set_database(db):
+    """
+    Set the global MongoDB database instance.
     
-    async def update_one(self, collection_name: str, query: Dict[str, Any], 
-                        update: Dict[str, Any],
-                        upsert: bool = False) -> SafeMongoDBResult[UpdateResult]:
-        """
-        Update a single document safely
-        
-        Args:
-            collection_name: Name of the collection
-            query: Query filter
-            update: Update specification
-            upsert: Whether to insert a new document if no match is found
-            
-        Returns:
-            Result with the update result or error
-        """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
-        
-        collection = collection_result.data
-        
-        try:
-            result = await collection.update_one(query, update, upsert=upsert)
-            return SafeMongoDBResult.success_result(result)
-        except PyMongoError as e:
-            logger.error(f"Error updating document in {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data={"query": query, "update": update}
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error updating document: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data={"query": query, "update": update}
-            )
+    Args:
+        db: The MongoDB database instance to use
+    """
+    global _db
+    _db = db
     
-    async def update_many(self, collection_name: str, query: Dict[str, Any], 
-                         update: Dict[str, Any],
-                         upsert: bool = False) -> SafeMongoDBResult[UpdateResult]:
-        """
-        Update multiple documents safely
-        
-        Args:
-            collection_name: Name of the collection
-            query: Query filter
-            update: Update specification
-            upsert: Whether to insert a new document if no match is found
-            
-        Returns:
-            Result with the update result or error
-        """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
-        
-        collection = collection_result.data
-        
-        try:
-            result = await collection.update_many(query, update, upsert=upsert)
-            return SafeMongoDBResult.success_result(result)
-        except PyMongoError as e:
-            logger.error(f"Error updating multiple documents in {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data={"query": query, "update": update}
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error updating multiple documents: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data={"query": query, "update": update}
-            )
+def get_database():
+    """
+    Get the global MongoDB database instance.
     
-    async def delete_one(self, collection_name: str, query: Dict[str, Any]) -> SafeMongoDBResult[DeleteResult]:
-        """
-        Delete a single document safely
-        
-        Args:
-            collection_name: Name of the collection
-            query: Query filter
-            
-        Returns:
-            Result with the delete result or error
-        """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
-        
-        collection = collection_result.data
-        
-        try:
-            result = await collection.delete_one(query)
-            return SafeMongoDBResult.success_result(result)
-        except PyMongoError as e:
-            logger.error(f"Error deleting document from {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data=query
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error deleting document: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data=query
-            )
+    Returns:
+        The MongoDB database instance or None if not set
+    """
+    return _db
+
+def is_db_available(db=None):
+    """
+    Check if the database appears to be available.
     
-    async def delete_many(self, collection_name: str, query: Dict[str, Any]) -> SafeMongoDBResult[DeleteResult]:
-        """
-        Delete multiple documents safely
+    Args:
+        db: The database instance to check, or None to use the global instance
         
-        Args:
-            collection_name: Name of the collection
-            query: Query filter
-            
-        Returns:
-            Result with the delete result or error
-        """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
-        
-        collection = collection_result.data
-        
-        try:
-            result = await collection.delete_many(query)
-            return SafeMongoDBResult.success_result(result)
-        except PyMongoError as e:
-            logger.error(f"Error deleting multiple documents from {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data=query
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error deleting multiple documents: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__,
-                data=query
-            )
-    
-    async def count_documents(self, collection_name: str, query: Dict[str, Any]) -> SafeMongoDBResult[int]:
-        """
-        Count documents safely
-        
-        Args:
-            collection_name: Name of the collection
-            query: Query filter
-            
-        Returns:
-            Result with the count or error
-        """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
-        
-        collection = collection_result.data
-        
-        try:
-            count = await collection.count_documents(query)
-            return SafeMongoDBResult.success_result(count)
-        except PyMongoError as e:
-            logger.error(f"Error counting documents in {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error counting documents: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-    
-    async def collection_exists(self, collection_name: str) -> SafeMongoDBResult[bool]:
-        """
-        Check if a collection exists safely
-        
-        Args:
-            collection_name: Name of the collection
-            
-        Returns:
-            Result with true/false or error
-        """
-        # Ensure connected
-        connect_result = await self._ensure_connected()
-        if not connect_result.success:
-            return connect_result
-        
-        try:
-            collections = await self._database.list_collection_names()
-            exists = collection_name in collections
-            return SafeMongoDBResult.success_result(exists)
-        except PyMongoError as e:
-            logger.error(f"Error checking if collection {collection_name} exists: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error checking if collection exists: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-    
-    async def aggregate(self, collection_name: str, pipeline: List[Dict[str, Any]]) -> SafeMongoDBResult[List[Dict[str, Any]]]:
-        """
-        Run an aggregation pipeline safely
-        
-        Args:
-            collection_name: Name of the collection
-            pipeline: Aggregation pipeline
-            
-        Returns:
-            Result with the aggregation results or error
-        """
-        # Get the collection
-        collection_result = await self.get_collection(collection_name)
-        if not collection_result.success:
-            return collection_result
-        
-        collection = collection_result.data
-        
-        try:
-            cursor = collection.aggregate(pipeline)
-            documents = await cursor.to_list(length=None)
-            return SafeMongoDBResult.success_result(documents)
-        except PyMongoError as e:
-            logger.error(f"Error running aggregation pipeline on {collection_name}: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error running aggregation pipeline: {e}")
-            return SafeMongoDBResult.error_result(
-                str(e),
-                error_type=type(e).__name__
-            )
+    Returns:
+        bool: True if the database appears to be available, False otherwise
+    """
+    try:
+        db_to_check = db if db is not None else _db
+        return db_to_check is not None
+    except Exception:
+        return False

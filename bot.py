@@ -21,6 +21,8 @@ from discord.ext import commands
 # Local imports
 try:
     from utils.safe_mongodb import SafeMongoDBClient, SafeMongoDBResult
+    from utils.premium_manager import PremiumManager
+    from utils.premium_models import PremiumTier
     from config import config
 except ImportError as e:
     print(f"Error importing required modules: {e}")
