@@ -23,15 +23,13 @@ This plan outlines the process of updating the Discord bot codebase to use our n
 - Identify cogs that interact with the database
 - Identify cogs that use premium features
 
-### Checkpoint 1.2: Prioritize Cogs
-- Categorize cogs by importance:
-  - Essential functionality (Tier 1)
-  - Important but not critical (Tier 2)
-  - Optional features (Tier 3)
+### Checkpoint 1.2: Analyze Cog Dependencies
 - Create a dependency graph to ensure cogs are implemented in the correct order
-- Prioritize cogs with fewer external dependencies first
+- Document interdependencies between cogs
+- Identify shared functionality and common patterns
+- Map database collection usage across cogs
 
-## Phase 2: Core Functionality Cogs
+## Phase 2: Server Management Cogs
 
 ### Checkpoint 2.1: Admin Cog
 - Implement admin commands (ban, kick, clear, etc.)
@@ -51,7 +49,7 @@ This plan outlines the process of updating the Discord bot codebase to use our n
 - Add prefix customization (with premium checks)
 - Test configuration persistence and loading
 
-## Phase 3: Utility Cogs
+## Phase 3: Information and Utility Cogs
 
 ### Checkpoint 3.1: Information Cog
 - Implement utility commands (serverinfo, userinfo, etc.)
@@ -71,7 +69,7 @@ This plan outlines the process of updating the Discord bot codebase to use our n
 - Add detailed command examples
 - Test help display for different command types
 
-## Phase 4: Premium Feature Cogs
+## Phase 4: Premium Features and Management
 
 ### Checkpoint 4.1: Premium Management Cog
 - Implement premium status commands
@@ -80,18 +78,18 @@ This plan outlines the process of updating the Discord bot codebase to use our n
 - Test premium status checks and tier-based access
 
 ### Checkpoint 4.2: Custom Commands Cog
-- Implement custom command creation (premium feature)
+- Implement custom command creation system
 - Add variable substitution system
 - Create command editing and deletion
 - Test command persistence and execution
 
 ### Checkpoint 4.3: Autoresponder Cog
-- Implement automated response system (premium feature)
+- Implement automated response system
 - Add trigger word/phrase configuration
 - Create response customization options
 - Test trigger detection and response formatting
 
-## Phase 5: Special Feature Cogs
+## Phase 5: Member and Role Management
 
 ### Checkpoint 5.1: Logging Cog
 - Implement event logging system
@@ -106,12 +104,12 @@ This plan outlines the process of updating the Discord bot codebase to use our n
 - Test proper event handling and message sending
 
 ### Checkpoint 5.3: Reaction Roles Cog
-- Implement reaction role system (premium feature)
+- Implement reaction role system
 - Add role assignment on reaction
 - Create reaction role menu builder
 - Test role assignment and removal
 
-## Phase 6: Integration and System Cogs
+## Phase 6: Data and Integration
 
 ### Checkpoint 6.1: Analytics Cog
 - Implement usage analytics dashboard
