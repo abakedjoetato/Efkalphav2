@@ -1,139 +1,92 @@
 """
 Simple Discord Bot
 
-A minimal Discord bot implementation that works with any version of discord.py or py-cord.
+A minimal, functional Discord bot that connects and responds to commands.
 """
 
 import os
-import sys
+import discord
+from discord.ext import commands
 import logging
-import importlib.util
+import asyncio
 from dotenv import load_dotenv
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger("SimpleBot")
 
 # Load environment variables
 load_dotenv()
-TOKEN = os.environ.get("DISCORD_TOKEN")
 
-# Check for token
-if not TOKEN:
-    logger.error("DISCORD_TOKEN environment variable is not set")
-    sys.exit(1)
+# Set up logging
+logging.basicConfig(level=logging.INFO,
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("simple_bot")
 
-# Try to import discord in a way that works with any version
-try:
-    # First try importing py-cord
+# Create bot instance with all intents
+intents = discord.Intents.default()
+intents.message_content = True  # Enables access to message content
+intents.members = True  # Enables access to member data
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+@bot.event
+async def on_ready():
+    """Called when the bot is ready to start receiving events."""
+    logger.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    logger.info(f"Connected to {len(bot.guilds)} guilds")
+    
+    # Set presence
+    await bot.change_presence(activity=discord.Game(name="!help for commands"))
+    
+    logger.info("Bot is ready!")
+
+@bot.command(name="ping")
+async def ping(ctx):
+    """Simple ping command to check if bot is responsive."""
+    await ctx.send(f"Pong! Latency: {round(bot.latency * 1000)}ms")
+
+@bot.command(name="hello")
+async def hello(ctx):
+    """Greets the user."""
+    await ctx.send(f"Hello {ctx.author.mention}! How can I help you today?")
+
+@bot.command(name="info")
+async def info(ctx):
+    """Provides information about the bot."""
+    embed = discord.Embed(
+        title="Bot Information",
+        description="A simple Discord bot created as a starting point.",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Commands", value="!ping, !hello, !info", inline=False)
+    embed.add_field(name="Servers", value=str(len(bot.guilds)), inline=True)
+    embed.add_field(name="Users", value=str(sum(guild.member_count for guild in bot.guilds)), inline=True)
+    
+    await ctx.send(embed=embed)
+
+@bot.event
+async def on_command_error(ctx, error):
+    """Global error handler for commands."""
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send("Command not found. Try !help to see available commands.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"Missing required argument: {error.param.name}")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send("Invalid argument provided.")
+    else:
+        logger.error(f"Error in command {ctx.command}: {error}")
+        await ctx.send("An error occurred while processing your command.")
+
+def run_bot():
+    """Run the Discord bot."""
+    token = os.getenv("DISCORD_TOKEN")
+    if not token:
+        logger.error("No Discord token found. Please set the DISCORD_TOKEN environment variable.")
+        return
+    
     try:
-        import py_cord as discord
-        logger.info("Successfully imported py-cord module as discord")
-    except ImportError:
-        # Fall back to regular discord import
-        import discord
-        logger.info("Successfully imported discord module")
-    
-    # Function to safely get attribute
-    def safe_get_attr(obj, attr_name):
-        return getattr(obj, attr_name, None)
-    
-    # Create a bot class that works with any discord library
-    class SimpleBot:
-        def __init__(self):
-            # Create intents - handle any discord library version
-            try:
-                intents = discord.Intents.default()
-                try:
-                    intents.message_content = True
-                except:
-                    logger.info("message_content intent not available")
-                    
-                try:
-                    intents.members = True
-                except:
-                    logger.info("members intent not available")
-                    
-                # Create client with intents
-                self.client = discord.Client(intents=intents)
-                logger.info("Created Discord client with intents")
-            except:
-                # Fallback for very old discord.py versions
-                logger.info("Intents not available, creating basic client")
-                self.client = discord.Client()
-            
-            # Register event handlers
-            @self.client.event
-            async def on_ready():
-                logger.info(f"Logged in as {self.client.user}")
-                logger.info(f"Connected successfully!")
-                
-            @self.client.event
-            async def on_message(message):
-                # Don't respond to our own messages
-                if message.author == self.client.user:
-                    return
-                    
-                # Simple ping command
-                if message.content.startswith('!ping'):
-                    await message.channel.send('Pong!')
-                    
-                # Info command
-                if message.content.startswith('!info'):
-                    try:
-                        embed_class = safe_get_attr(discord, 'Embed')
-                        color_class = safe_get_attr(discord, 'Color')
-                        
-                        if embed_class and color_class:
-                            embed = embed_class(
-                                title="Simple Discord Bot",
-                                description="A minimal bot implementation",
-                                color=color_class.green()
-                            )
-                            
-                            # Add version info if available
-                            version = safe_get_attr(discord, '__version__')
-                            lib_name = "py-cord" if hasattr(discord, 'application_commands') else "discord.py"
-                            embed.add_field(
-                                name="Library", 
-                                value=f"{lib_name} {version or 'unknown'}", 
-                                inline=True
-                            )
-                            
-                            await message.channel.send(embed=embed)
-                        else:
-                            await message.channel.send(
-                                "Simple Discord Bot\n"
-                                "A minimal bot implementation"
-                            )
-                    except Exception as e:
-                        logger.error(f"Error sending embed: {e}")
-                        await message.channel.send("Simple Discord Bot - A minimal implementation")
-                
-        def run(self):
-            """Run the bot"""
-            try:
-                logger.info("Starting bot...")
-                self.client.run(TOKEN)
-            except Exception as e:
-                logger.error(f"Error running bot: {e}")
-                sys.exit(1)
-                
-except ImportError as e:
-    logger.error(f"Failed to import Discord module: {e}")
-    sys.exit(1)
+        bot.run(token)
+    except discord.errors.LoginFailure:
+        logger.error("Invalid Discord token. Please check your DISCORD_TOKEN environment variable.")
+    except Exception as e:
+        logger.error(f"Error starting bot: {e}")
 
-def main():
-    """Run the Discord bot"""
-    logger.info("Initializing Simple Discord Bot")
-    bot = SimpleBot()
-    bot.run()
-    
 if __name__ == "__main__":
-    main()
+    run_bot()
