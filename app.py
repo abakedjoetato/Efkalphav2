@@ -1,8 +1,8 @@
 """
-Minimal entry point for Replit to start the Discord bot
+Enhanced entry point for Replit to start the Discord bot
 
-This file is just a shim to satisfy Replit's expectations
-while launching the actual Discord bot process without Flask.
+This file satisfies Replit's expectations for a web service while
+actually running our Discord bot in a background process.
 """
 
 import os
@@ -12,7 +12,8 @@ import subprocess
 import threading
 import time
 import logging
-from typing import Optional
+import traceback
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -27,9 +28,10 @@ logging.basicConfig(
 logger = logging.getLogger("app_launcher")
 
 # Global variables
-bot_process: Optional[subprocess.Popen] = None
-log_thread: Optional[threading.Thread] = None
-stop_log_thread: bool = False
+bot_process = None
+log_thread = None
+stop_log_thread = False
+start_time = datetime.now()
 
 def start_discord_bot():
     """
@@ -54,13 +56,23 @@ def start_discord_bot():
         log_thread.join(5)
     
     # Start the bot process
-    cmd = ["./run_replit.sh"]
+    cmd = ["./run_fixed"]
     
     logger.info(f"Starting Discord bot process: {' '.join(cmd)}")
     
     try:
+        # Make the script executable if it isn't already
+        if not os.access("run_fixed", os.X_OK):
+            os.chmod("run_fixed", 0o755)
+            logger.info("Made run_fixed executable")
+        
         # Create logs directory if it doesn't exist
         os.makedirs("logs", exist_ok=True)
+        
+        # Check if Discord token exists
+        if not os.getenv("DISCORD_TOKEN"):
+            logger.critical("DISCORD_TOKEN environment variable is not set")
+            return False
         
         # Start the bot process
         bot_process = subprocess.Popen(
@@ -82,6 +94,7 @@ def start_discord_bot():
         return True
     except Exception as e:
         logger.error(f"Failed to start Discord bot process: {e}")
+        logger.error(traceback.format_exc())
         return False
     
 def log_output():
@@ -89,6 +102,9 @@ def log_output():
     global bot_process, stop_log_thread
     
     logger.info("Started log output thread")
+    
+    # Open a log file for the bot output
+    log_file = open("bot_output.log", "a", encoding="utf-8")
     
     while not stop_log_thread and bot_process and bot_process.poll() is None:
         try:
@@ -99,6 +115,11 @@ def log_output():
                 # Log and print the output
                 line = line.rstrip()
                 print(line)
+                
+                # Write to log file with timestamp
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                log_file.write(f"[{timestamp}] {line}\n")
+                log_file.flush()  # Ensure it's written immediately
             else:
                 # No more output, check if the process is still running
                 if bot_process.poll() is not None:
@@ -109,6 +130,9 @@ def log_output():
         except Exception as e:
             logger.error(f"Error reading bot output: {e}")
             time.sleep(1)
+    
+    # Close the log file
+    log_file.close()
             
     logger.info("Log output thread stopped")
 
@@ -128,6 +152,7 @@ def cleanup(signum, frame):
     # Stop the bot process
     if bot_process is not None:
         try:
+            logger.info(f"Terminating bot process (PID {bot_process.pid})...")
             bot_process.terminate()
             try:
                 bot_process.wait(timeout=5)
@@ -136,12 +161,16 @@ def cleanup(signum, frame):
                 bot_process.kill()
         except Exception as e:
             logger.error(f"Error stopping bot process: {e}")
+    
+    # Calculate runtime
+    runtime = datetime.now() - start_time
+    logger.info(f"Bot ran for {runtime}")
             
     sys.exit(0)
 
 def start_server():
     """
-    Dummy function for Replit to call
+    Function for Replit to call
     """
     # Register signal handlers
     signal.signal(signal.SIGINT, cleanup)
@@ -167,7 +196,8 @@ def start_server():
     logger.info("App launcher exiting")
 
 # For Flask/Replit compatibility
-app = None
+# This will be imported by Replit to run the app
+app = type('App', (), {'run': start_server})()
 
 if __name__ == "__main__":
     start_server()

@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# Run the Discord bot using the workflow script
+
+echo "Starting Discord bot..."
+
+# Check if Python is available
+if ! command -v python &> /dev/null; then
+    echo "Error: Python is not installed or not in PATH"
+    exit 1
+fi
+
+# Check if Discord token is set
+if [ -z "$DISCORD_TOKEN" ]; then
+    echo "Error: DISCORD_TOKEN environment variable is not set"
+    echo "Please set it with: export DISCORD_TOKEN=your_token_here"
+    exit 1
+fi
+
+# Run the workflow script
+python run_workflow.py
+
+# Check exit code
+if [ $? -ne 0 ]; then
+    echo "Bot exited with an error"
+    exit 1
+fi
+
+echo "Bot exited successfully"
+exit 0
